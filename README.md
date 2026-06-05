@@ -117,6 +117,23 @@ HOST=127.0.0.1
 
 ---
 
+
+## 🚀 Como baixar e configurar o projeto
+
+Para começar a utilizar o **Manual Uerjiano**, siga os passos abaixo para clonar o repositório e preparar o seu ambiente local:
+
+### 1. Clonando o repositório
+Abra o seu terminal, navegue até a pasta onde deseja salvar o projeto e execute:
+
+```bash
+# 1. Clone o repositório do Git
+git clone [https://github.com/MartinsonFreitas/manual-uerjiano.git](https://github.com/MartinsonFreitas/manual-uerjiano.git)
+
+# 2. Navegue para o diretório
+cd manual-uerjiano
+
+```
+
 ## 📤 Etapas para Fazer o Upload para o GitHub
 
 Para publicar e compartilhar este projeto no seu perfil do GitHub, siga o passo a passo abaixo:
