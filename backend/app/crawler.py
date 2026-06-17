@@ -69,7 +69,10 @@ def scrape_carta_servicos() -> list:
 
 def scrape_rede_sirius_legislacao() -> list:
     """Raspagem da página de busca de legislação da Rede Sirius."""
-    url = "https://catalogo-redesirius.uerj.br/Terminalweb/busca/legislacao"
+    # url = "https://catalogo-redesirius.uerj.br/Terminalweb/busca/legislacao"
+    url = "https://www.pr4.uerj.br/normativos"
+    # url = "https://catalogo-redesirius.uerj.br/TerminalWeb/Resultado/ListarLegislacao?guid=1781716640102"
+    # url = "https://catalogo-redesirius.uerj.br/TerminalWeb/VisualizadorPdf?codigoArquivo=23151&tipoMidia=0"
     html = fetch_html(url)
     if not html:
         return []
@@ -286,13 +289,13 @@ def get_seed_documents() -> list:
             """
         },
         {
-            "titulo": "AEDA 045/REITORIA/2024 - Atualização de Auxílios Estudantis (Revoga Parcialmente AEDA 023/2021)",
+            "titulo": "AEDA 042/REITORIA/2024 - Atualização de Auxílios Estudantis (Revoga Parcialmente AEDA 023/2021)",
             "tipo": "AEDA",
-            "numero": "045/2024",
+            "numero": "042/2024",
             "ano": 2024,
-            "url": "https://www.pr4.uerj.br/aeda/aeda_045_2024.pdf",
+            "url": "https://www.pr4.uerj.br/wp-content/uploads/2024/09/AEDA-042-REITORIA-2024.pdf",
             "texto": """
-            ATO EXECUTIVO DE DECISÃO ADMINISTRATIVA Nº 045/REITORIA/2024
+            ATO EXECUTIVO DE DECISÃO ADMINISTRATIVA Nº 042/REITORIA/2024
             Atualiza os valores das Bolsas de Assistência Estudantil e revoga o Artigo 12 do AEDA 023/2021 que limitava a cumulação de auxílios.
             
             1. NOVOS VALORES DE BOLSAS:
@@ -367,7 +370,7 @@ def run_ingest():
         revogado_por="AEDA 045/2024 (Revogado parcialmente nos termos da cumulação de auxílios e valores atualizados)"
     )
     if changes:
-        print("AEDA 023/2021 marcado como parcialmente revogado pelo AEDA 045/2024.")
+        print("AEDA 023/2021 marcado como parcialmente revogado pelo AEDA 042/2024.")
         
     print("Ingestão de dados concluída com sucesso!")
 
