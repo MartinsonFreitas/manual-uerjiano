@@ -1,8 +1,8 @@
 # Virtual environment
-.venv/
-venv/
-env/
-ENV/
+# .venv/
+# venv/
+# env/
+# ENV/
 
 # Python cache
 __pycache__/
@@ -22,7 +22,7 @@ __pycache__/
 backend/.env
 
 # Local data and databases
-data/
-backend/data/
-*.db
-*.sqlite3
+# data/
+# backend/data/
+# *.db
+# *.sqlite3
