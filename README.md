@@ -28,6 +28,7 @@ manual-uerjiano/
 │   ├── app/
 │   │   ├── crawler.py        # Raspagem de portais da UERJ e sementes (seed data)
 │   │   ├── database.py       # Gerenciamento do banco relacional SQLite e histórico
+│   │   ├── ingest_sirius.py  # Raspagem adicional no Site da Rede Sirius
 │   │   ├── main.py           # API FastAPI e montagem do Frontend estático
 │   │   ├── rag.py            # Fluxo principal do RAG e integração com Gemini
 │   │   └── vector_db.py      # Divisão em chunks, embeddings e busca de similaridade
