@@ -355,6 +355,7 @@ body {
     font-size: 38px;
     font-weight: 800;
     background: linear-gradient(135deg, var(--text-primary) 30%, var(--primary-hover));
+    background-clip: text;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
 }
