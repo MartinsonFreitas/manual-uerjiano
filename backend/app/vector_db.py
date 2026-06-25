@@ -2,16 +2,36 @@ import os
 import json
 import math
 import sqlite3
+import time # Adicionado para o controle de limite da API
 from dotenv import load_dotenv
 import google.generativeai as genai
 from typing import List, Dict, Any
+from pathlib import Path
 
 # Carregar variáveis de ambiente
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.env"))
 
 # Obter configurações das variáveis de ambiente
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-SQLITE_DB_PATH = os.environ.get("SQLITE_DB_PATH", "../data/manual_uerjiano.db")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "manual_uerjiano.db"
+LEGACY_DB_PATHS = [
+    PROJECT_ROOT / "backend" / "data" / "manual_uerjiano.db",
+    Path(PROJECT_ROOT.anchor) / "data" / "manual_uerjiano.db",
+]
+
+
+def resolve_db_path() -> Path:
+    """Resolve o caminho do SQLite de forma estável a partir da raiz do projeto."""
+    env_path = os.environ.get("SQLITE_DB_PATH")
+    if env_path:
+        path = Path(env_path).expanduser()
+        if path.is_absolute():
+            return path
+    return DEFAULT_DB_PATH
+
+
+SQLITE_DB_PATH = resolve_db_path()
 
 # Configurar API do Gemini para embeddings
 if GEMINI_API_KEY:
@@ -19,8 +39,9 @@ if GEMINI_API_KEY:
 
 def get_db_connection():
     # Garantir que a pasta de dados existe
-    os.makedirs(os.path.dirname(os.path.abspath(SQLITE_DB_PATH)), exist_ok=True)
-    conn = sqlite3.connect(SQLITE_DB_PATH)
+    os.makedirs(SQLITE_DB_PATH.parent, exist_ok=True)
+    # CORREÇÃO: Adicionado timeout e check_same_thread para evitar "database is locked"
+    conn = sqlite3.connect(str(SQLITE_DB_PATH), timeout=10.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     # Garantir que a tabela existe
     conn.execute("""
@@ -35,7 +56,69 @@ def get_db_connection():
     )
     """)
     conn.commit()
+    migrate_legacy_vector_db()
     return conn
+
+
+def table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table_name,))
+    return cursor.fetchone() is not None
+
+
+def migrate_legacy_vector_db():
+    """Mescla os chunks vetoriais do banco legado em backend/data para o banco canônico."""
+    current_conn = sqlite3.connect(str(SQLITE_DB_PATH), timeout=10.0, check_same_thread=False)
+    current_conn.row_factory = sqlite3.Row
+    current_conn.execute("""
+    CREATE TABLE IF NOT EXISTS document_chunks (
+        id TEXT PRIMARY KEY,
+        doc_id INTEGER,
+        titulo TEXT,
+        tipo TEXT,
+        texto TEXT,
+        chunk_idx INTEGER,
+        embedding TEXT
+    )
+    """)
+    current_conn.commit()
+
+    current_cursor = current_conn.cursor()
+    for legacy_path in LEGACY_DB_PATHS:
+        if legacy_path.resolve() == SQLITE_DB_PATH.resolve() or not legacy_path.exists():
+            continue
+
+        legacy_conn = sqlite3.connect(str(legacy_path), timeout=10.0, check_same_thread=False)
+        legacy_conn.row_factory = sqlite3.Row
+        legacy_conn.execute("""
+        CREATE TABLE IF NOT EXISTS document_chunks (
+            id TEXT PRIMARY KEY,
+            doc_id INTEGER,
+            titulo TEXT,
+            tipo TEXT,
+            texto TEXT,
+            chunk_idx INTEGER,
+            embedding TEXT
+        )
+        """)
+        legacy_conn.commit()
+
+        if table_exists(legacy_conn, "document_chunks"):
+            legacy_cursor = legacy_conn.cursor()
+            legacy_cursor.execute("SELECT id, doc_id, titulo, tipo, texto, chunk_idx, embedding FROM document_chunks")
+            for row in legacy_cursor.fetchall():
+                current_cursor.execute(
+                    """
+                    INSERT OR IGNORE INTO document_chunks (id, doc_id, titulo, tipo, texto, chunk_idx, embedding)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (row["id"], row["doc_id"], row["titulo"], row["tipo"], row["texto"], row["chunk_idx"], row["embedding"]),
+                )
+
+        legacy_conn.close()
+
+    current_conn.commit()
+    current_conn.close()
 
 def get_embedding(text: str, task_type: str = "retrieval_document") -> List[float]:
     """Gera o embedding do texto usando a API do Gemini."""
@@ -105,6 +188,10 @@ def add_document_to_vector_db(doc_id: int, titulo: str, tipo: str, texto: str):
     
     for idx, chunk in enumerate(chunks):
         chunk_id = f"doc_{doc_id}_chunk_{idx}"
+        
+        # CORREÇÃO: Pausa de 1 segundo para não estourar a cota gratuita do Gemini (100 req/min)
+        time.sleep(1) 
+        
         emb = get_embedding(chunk, task_type="retrieval_document")
         
         cursor.execute("""

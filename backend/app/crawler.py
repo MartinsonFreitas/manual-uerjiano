@@ -3,6 +3,9 @@ import requests
 from bs4 import BeautifulSoup
 import urllib3
 from datetime import datetime
+from io import BytesIO
+from urllib.parse import urljoin
+from pypdf import PdfReader
 from database import insert_document, mark_as_revoked
 from vector_db import add_document_to_vector_db
 
@@ -14,16 +17,95 @@ def fetch_html(url: str) -> str:
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
+    last_error = ""
+    for attempt in range(2):
+        try:
+            response = requests.get(url, headers=headers, verify=False, timeout=20)
+            if response.status_code == 200:
+                return response.text
+
+            last_error = f"Status {response.status_code}"
+            if response.status_code < 500 or attempt == 1:
+                print(f"Erro ao acessar {url}: {last_error}")
+                return ""
+        except Exception as e:
+            last_error = str(e)
+            if attempt == 1:
+                print(f"Exceção ao acessar {url}: {e}")
+                return ""
+
+        time.sleep(1)
+
+    if last_error:
+        print(f"Erro ao acessar {url}: {last_error}")
+    return ""
+
+def fetch_pdf_text(url: str) -> str:
+    """Baixa um PDF e extrai o texto para indexação."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
     try:
-        response = requests.get(url, headers=headers, verify=False, timeout=20)
-        if response.status_code == 200:
-            return response.text
-        else:
-            print(f"Erro ao acessar {url}: Status {response.status_code}")
+        response = requests.get(url, headers=headers, verify=False, timeout=30)
+        if response.status_code != 200:
+            print(f"Erro ao baixar PDF {url}: Status {response.status_code}")
             return ""
+
+        reader = PdfReader(BytesIO(response.content))
+        pages_text = []
+        for page in reader.pages:
+            text = page.extract_text() or ""
+            text = text.strip()
+            if text:
+                pages_text.append(text)
+
+        return "\n\n".join(pages_text).strip()
     except Exception as e:
-        print(f"Exceção ao acessar {url}: {e}")
+        print(f"Exceção ao extrair PDF {url}: {e}")
         return ""
+
+def extract_text_blocks(html: str, selectors=None, min_length: int = 20) -> str:
+    """Extrai blocos de texto visíveis preservando títulos, valores e critérios relevantes."""
+    if selectors is None:
+        selectors = ["h1", "h2", "h3", "h4", "p", "li"]
+
+    soup = BeautifulSoup(html, "html.parser")
+    blocks = []
+    seen = set()
+
+    for elem in soup.find_all(selectors):
+        txt = " ".join(elem.stripped_strings)
+        txt = " ".join(txt.split())
+        if not txt or len(txt) < min_length:
+            continue
+        if txt in seen:
+            continue
+        seen.add(txt)
+        blocks.append(txt)
+
+    return "\n\n".join(blocks).strip()
+
+def make_document(titulo: str, tipo: str, url: str, texto: str, numero=None, ano=None) -> dict:
+    return {
+        "titulo": titulo,
+        "tipo": tipo,
+        "numero": numero,
+        "ano": ano or datetime.now().year,
+        "url": url,
+        "texto": texto,
+    }
+
+def scrape_pr4_page(url: str, titulo: str, tipo: str = "Normativos") -> list:
+    """Raspa uma página específica da PR4 e transforma o conteúdo principal em documento indexável."""
+    html = fetch_html(url)
+    if not html:
+        return []
+
+    texto = extract_text_blocks(html)
+    if not texto:
+        return []
+
+    return [make_document(titulo=titulo, tipo=tipo, url=url, texto=texto)]
 
 def scrape_carta_servicos() -> list:
     """Scrapea o portal de serviços da UERJ para extrair informações."""
@@ -69,9 +151,9 @@ def scrape_carta_servicos() -> list:
 
 def scrape_rede_sirius_legislacao() -> list:
     """Raspagem da página de busca de legislação da Rede Sirius."""
-    # url = "https://catalogo-redesirius.uerj.br/Terminalweb/busca/legislacao"
-    url = "https://www.pr4.uerj.br/normativos"
-    # url = "https://catalogo-redesirius.uerj.br/TerminalWeb/Resultado/ListarLegislacao?guid=1781716640102"
+    url = "https://catalogo-redesirius.uerj.br/Terminalweb/busca/legislacao"
+    # url = "https://www.pr4.uerj.br/normativos"
+    #url = "https://catalogo-redesirius.uerj.br/TerminalWeb/Resultado/ListarLegislacao?guid=1781716640102"
     # url = "https://catalogo-redesirius.uerj.br/TerminalWeb/VisualizadorPdf?codigoArquivo=23151&tipoMidia=0"
     html = fetch_html(url)
     if not html:
@@ -139,6 +221,68 @@ def scrape_dep_manuais() -> list:
     })
     
     print(f"Página de Manuais do DEP raspada. Obtido 1 documento principal ({len(content)} caracteres).")
+    return documents
+
+def scrape_pr4() -> list:
+    """Scrapea a página PR4 UERJ."""
+    documents = []
+
+    # 1) Página principal da PR4, que concentra os atalhos e a visão geral do setor.
+    documents.extend(scrape_pr4_page(
+        "https://www.pr4.uerj.br/",
+        "PR4 UERJ - Página Principal",
+        tipo="Institucional",
+    ))
+
+    # 2) Páginas principais dos auxílios e bolsas, que trazem valores, critérios e links dos normativos.
+    pr4_benefit_pages = [
+        ("https://www.pr4.uerj.br/aa", "PR4 UERJ - Auxílio Alimentação (AA)"),
+        ("https://www.pr4.uerj.br/at", "PR4 UERJ - Auxílio Transporte (AT)"),
+        ("https://www.pr4.uerj.br/uniforme", "PR4 UERJ - Auxílio Uniforme Escolar"),
+        ("https://www.pr4.uerj.br/bavs", "PR4 UERJ - Bolsa Apoio à Vulnerabilidade Social (BAVS)"),
+        ("https://www.pr4.uerj.br/bppg", "PR4 UERJ - Nova Bolsa Permanência na Pós-graduação (Nova BPPG)"),
+        ("https://www.pr4.uerj.br/amd", "PR4 UERJ - Auxílio Material Didático (AMD)"),
+        ("https://www.pr4.uerj.br/papeb", "PR4 UERJ - Programa de Apoio à Permanência na Educação Básica (PAPEB)"),
+    ]
+
+    for page_url, page_title in pr4_benefit_pages:
+        documents.extend(scrape_pr4_page(page_url, page_title, tipo="Auxílio/Bolsa"))
+
+    # 3) Normativos e PDFs vinculados à PR4, para capturar o texto integral dos documentos oficiais.
+    normativos_url = "https://www.pr4.uerj.br/normativos"
+    html = fetch_html(normativos_url)
+    if html:
+        soup = BeautifulSoup(html, "html.parser")
+        pdf_links = []
+        seen_pdf_urls = set()
+        for a in soup.find_all("a", href=True):
+            href = a["href"].strip()
+            text = a.get_text(strip=True)
+            if "arqs/" in href.lower() or ".pdf" in href.lower() or "download" in href.lower():
+                full_url = urljoin(normativos_url, href)
+                if full_url in seen_pdf_urls:
+                    continue
+                seen_pdf_urls.add(full_url)
+                pdf_links.append((text or full_url, full_url))
+
+        for link_text, full_url in pdf_links:
+            pdf_text = fetch_pdf_text(full_url)
+            if pdf_text:
+                documents.append(make_document(
+                    titulo=f"PR4 UERJ - {link_text}",
+                    tipo="Normativos",
+                    url=full_url,
+                    texto=pdf_text,
+                ))
+            else:
+                documents.append(make_document(
+                    titulo=f"PR4 UERJ - {link_text}",
+                    tipo="Normativos",
+                    url=full_url,
+                    texto=f"Arquivo localizado no PR4, mas sem texto extraído automaticamente. URL: {full_url}",
+                ))
+    
+    print(f"Página de Auxílios e Bolsas do PR4 raspada. Obtidos {len(documents)} documentos.")
     return documents
 
 def get_seed_documents() -> list:
@@ -333,6 +477,12 @@ def run_ingest():
         scraped_docs.extend(scrape_dep_manuais())
     except Exception as e:
         print(f"Erro no scraping dos Manuais do DEP: {e}")
+
+    print("Executando scraping da PR4...")
+    try:
+        scraped_docs.extend(scrape_pr4())
+    except Exception as e:
+        print(f"Erro no scraping da PR4: {e}")
         
     # 2. Obter dados de semente (seed data)
     seed_docs = get_seed_documents()
@@ -367,7 +517,7 @@ def run_ingest():
     # Aqui, a marcação é feita usando nossa lógica de banco de dados
     changes = mark_as_revoked(
         titulo_or_numero="023/2021", 
-        revogado_por="AEDA 045/2024 (Revogado parcialmente nos termos da cumulação de auxílios e valores atualizados)"
+        revogado_por="AEDA 042/2024 (Revogado parcialmente nos termos da cumulação de auxílios e valores atualizados)"
     )
     if changes:
         print("AEDA 023/2021 marcado como parcialmente revogado pelo AEDA 042/2024.")
