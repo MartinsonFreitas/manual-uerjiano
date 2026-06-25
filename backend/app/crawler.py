@@ -1,4 +1,5 @@
 import os
+import time
 import requests
 from bs4 import BeautifulSoup
 import urllib3
@@ -97,6 +98,7 @@ def make_document(titulo: str, tipo: str, url: str, texto: str, numero=None, ano
 
 def scrape_pr4_page(url: str, titulo: str, tipo: str = "Normativos") -> list:
     """Raspa uma página específica da PR4 e transforma o conteúdo principal em documento indexável."""
+    url = "https://www.pr4.uerj.br/"
     html = fetch_html(url)
     if not html:
         return []

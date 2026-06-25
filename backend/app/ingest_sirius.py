@@ -6,6 +6,7 @@ Total de documentos: 29 AEDAs (ano 2026)
 """
 import sys
 import io
+import google.generativeai as genai
 # Fix Windows console encoding
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
